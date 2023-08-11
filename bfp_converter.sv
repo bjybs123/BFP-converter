@@ -28,23 +28,26 @@ module bfp_converter #(
 
     logic [BFPMANSIZE-1:0] bfp_mans [0:GRPSIZE-1];
 
+    /* floating point parsing, add 1 to exponent (eliminating implicit leading 1) */
     genvar idx;
     generate
-        for(idx=0; idx<GRPSIZE; idx=idx+1) begin : man_slice
+        for(idx=0; idx<GRPSIZE; idx=idx+1) begin : fp_slice
             assign exps[idx] = i_exps[idx] == 0 ? i_exps[idx] : i_exps[idx] + 1;
             assign {signs[idx], mans[idx]} = i_mans[idx];
         end
     endgenerate
 
-
+    /* Compare binary search tree */
     genvar lv, cmp;
     generate
         for(lv=levels-1; lv>=0; lv=lv-1) begin : level
             for(cmp=0; cmp<2**lv; cmp=cmp+1) begin :compare
                 always @ (*) begin
+                    // For first compare, fetch operands from exponents
                     if(lv == levels-1) begin
                         tmp_result[2**lv+cmp] = (exps[cmp*2] > exps[cmp*2+1]) ? exps[cmp*2] : exps[cmp*2+1];
                     end
+                    // Fetch operands from result of the previous layer
                     else begin
                         tmp_result[2**lv+cmp] =     tmp_result[2**(lv+1)+cmp*2] > tmp_result[2**(lv+1)+cmp*2+1] ? 
                                                     tmp_result[2**(lv+1)+cmp*2] : tmp_result[2**(lv+1)+cmp*2+1];
@@ -56,7 +59,8 @@ module bfp_converter #(
 
     assign max_exp = tmp_result[1];
 
-    genvar sub;
+    /* calculate amount of shift needed due to mantissa alignment */
+    genvar sub; 
     generate
         for(sub=0; sub<GRPSIZE; sub=sub+1) begin : exp_sub
             assign sft_amt[sub] = max_exp - exps[sub];
@@ -67,13 +71,13 @@ module bfp_converter #(
     genvar sft;
     generate
         for(sft=0; sft<GRPSIZE; sft=sft+1) begin : sft_exp
-            always_comb begin
+            always @ (*) begin
                 // Denormalized
                 if(exps[sft] == 0) begin
                     mans_align[sft] = mans[sft] >> sft_amt[sft];
                 end
                 // Not Denormalized number, 
-                // eliminate leading 1 by shifting right for simplicity, {1'b1, mans[sft][22:1]} 
+                // eliminate implicit leading 1 by shifting right for simplicity, {1'b1, mans[sft][22:1]} 
                 else begin
                     mans_align[sft] = {1'b1, mans[sft][FPMANSIZE-1:1]} >> sft_amt[sft];
                 end
@@ -82,7 +86,7 @@ module bfp_converter #(
     endgenerate
 
 
-    // Nearest rounding
+    /* Nearest rounding */
     genvar round;
     generate
         for(round=0; round<GRPSIZE; round=round+1) begin
